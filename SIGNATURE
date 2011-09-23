@@ -1,5 +1,5 @@
 This file contains message digests of all files listed in MANIFEST,
-signed via the Module::Signature module, version 0.68.
+signed via the Module::Signature module, version 0.66.
 
 To verify the content in this distribution, first make sure you have
 Module::Signature installed, then type:
@@ -14,38 +14,38 @@ not run its Makefile.PL or Build.PL.
 -----BEGIN PGP SIGNED MESSAGE-----
 Hash: SHA1
 
-SHA1 b8bcc0640d7d2d9a7eab598e11811e8491f551c0 Changes
-SHA1 29d85451a8c0a0549a495f93f79276fc3e47529e Changes.ttl
-SHA1 fa37cefbfad431003203c116c22a9a9898e45ee7 Changes.xml
+SHA1 8d0697549e83cbd2753cfd68ca70cda9650cbef5 Changes
+SHA1 91606894ee2d7104972c26cfb77e033d39ffaef8 Changes.ttl
+SHA1 3bcd99a2064259faa1d7e2c2a32f41b073aefc00 Changes.xml
 SHA1 73ab24a7f83221b268e9e39196508d21e62871d3 MANIFEST
 SHA1 f5e0e1a1bb5bd5e30043a2123bf757fa648bedf8 MANIFEST.SKIP
-SHA1 8dfb0f09cd1344beaa0594cadca60659f7702e2a META.yml
-SHA1 aac440e6356c1b44d9015a5ea4ca55e1ae73cc0d Makefile.PL
+SHA1 63ab58456c358df7eb59694d5f41744400aa5a6e META.yml
+SHA1 ad24a2d4cb88a9acefc626b10236f1cd91304880 Makefile.PL
 SHA1 75fdfcbd7cc68e55371d42e62ae6d8ea047617ee README
-SHA1 bc9a201b280fa92a1293ec0cfece6a256e8740a7 TODO
+SHA1 adc417bbd434df38329b600bc8916e4ea3bbd7c5 TODO
 SHA1 20c73697e1713638140c719d8eaa19a275ed43a5 inc/Module/AutoInstall.pm
-SHA1 7b4ae50ebac72d20761171c4c2b50c206344ea40 inc/Module/Install.pm
-SHA1 c3cb159acd7618ea662f28deb0d0bf8f24742ebb inc/Module/Install/AutoInstall.pm
-SHA1 d9fe55a427fe2fd75b5029afeeaa61b592e07f79 inc/Module/Install/Base.pm
-SHA1 62d3922826d9f89f20c185e7031ac8f028504745 inc/Module/Install/Can.pm
+SHA1 7305dbe2904416e28decb05396988a5d51d578be inc/Module/Install.pm
+SHA1 ca13d9875e1249f6e84f7070be8152c34837955e inc/Module/Install/AutoInstall.pm
+SHA1 129960509127732258570c122042bc48615222e1 inc/Module/Install/Base.pm
+SHA1 cf3356ed9a5bd2f732527ef9e7bc5ef4458c8a93 inc/Module/Install/Can.pm
 SHA1 986dcb1f1b6a1fde7c51f1558b93368e2429caa2 inc/Module/Install/DOAPChangeSets.pm
-SHA1 dc809f64fb70a26b069a36f8d3d353d520dbb7e1 inc/Module/Install/Fetch.pm
-SHA1 d859f2d8048708f16b5fd92f54c988a3c4c1ae30 inc/Module/Install/Include.pm
-SHA1 73ab91490a628452cc140db72ef9d13a1326d211 inc/Module/Install/Makefile.pm
-SHA1 8ce3f2b414e4617e6233dd4ba10830f8c5d672ec inc/Module/Install/Metadata.pm
-SHA1 d3a33569b41077d6a836f95bb63484c51e9d0a52 inc/Module/Install/ReadmeFromPod.pm
-SHA1 3b0acd2eeac93a0afe48120f5648f0db362e5bbf inc/Module/Install/Win32.pm
-SHA1 f08924f051e623f8e09fa6a121993c4a9cf7d9eb inc/Module/Install/WriteAll.pm
-SHA1 970bb1f05ba9bbc8205feb55b3dd233efcd7799e lib/RDF/RDB2RDF.pm
-SHA1 6a0e648e868816a93548cfa5334baf371de40ff7 lib/RDF/RDB2RDF/R2RML.pm
-SHA1 6bab2c2cbd5e1a160267d420ac1e86bc2a64436d lib/RDF/RDB2RDF/Simple.pm
+SHA1 bf0a3e1977effc2832d7a813a76dce3f31b437b6 inc/Module/Install/Fetch.pm
+SHA1 b501b0df59a5cd235cca473889f82c3d3429f39e inc/Module/Install/Include.pm
+SHA1 b721c93ca5bc9a6aa863b49af15f1b1de6125935 inc/Module/Install/Makefile.pm
+SHA1 026cc0551a0ad399d195e395b46bdf842e115192 inc/Module/Install/Metadata.pm
+SHA1 a615bb050ca0b2d79bfa0224addcb83019a53b09 inc/Module/Install/ReadmeFromPod.pm
+SHA1 5457015ea5a50e93465bf2dafa29feebd547f85b inc/Module/Install/Win32.pm
+SHA1 051e7fa8063908befa3440508d0584a2497b97db inc/Module/Install/WriteAll.pm
+SHA1 0740196f45a360a22ee630239af5c5f86df79073 lib/RDF/RDB2RDF.pm
+SHA1 accfa921b4a4315c502933604ec50007317cd030 lib/RDF/RDB2RDF/R2RML.pm
+SHA1 5dca936a0fd2b144d53af6c55b8b10bbef8aee43 lib/RDF/RDB2RDF/Simple.pm
 SHA1 001ce16f54a2a1708b88ea5de64468ea77456b1b t/01basic.t
-SHA1 55f16c880ff9e3341beeb053228fc6e5d05eaaa3 t/02library.t
+SHA1 d7c46a547dcc70cfd9f96a171dbeb98e72d102a0 t/02library.t
 SHA1 7048914a81d3ede556e62a31ab93a5351eb3c58d t/library.sqlite
 -----BEGIN PGP SIGNATURE-----
-Version: GnuPG v1.4.11 (GNU/Linux)
+Version: GnuPG v1.4.10 (GNU/Linux)
 
-iEYEARECAAYFAk5yKUgACgkQzr+BKGoqfTkInACfTxFnCpDO+x/UIhGjhp2dQ3Vz
-Wb4AoI/GPLMI692mhGsq5NZTLhP34ymR
-=AQyQ
+iEYEARECAAYFAk57yn0ACgkQzr+BKGoqfTkBzgCdE67Qnm3LtK8/D7ObR78CXeNA
+t8sAn20lXobXw/L+xD731k+ckPO+KmdS
+=yJOz
 -----END PGP SIGNATURE-----
