@@ -15,7 +15,7 @@ our $rr = RDF::Trine::Namespace->new('http://www.w3.org/ns/r2rml#');
 
 use base qw[RDF::RDB2RDF::Simple];
 
-our $VERSION = '0.002';
+our $VERSION = '0.003';
 
 sub new
 {
@@ -49,11 +49,20 @@ sub _r2rml
 		$self->{namespaces} = RDF::Trine::NamespaceMap->new;
 		my $parser = RDF::Trine::Parser->new('Turtle', namespaces=>$self->{namespaces});
 		my $model  = RDF::Trine::Model->temporary_model;
-		$parser->parse_into_model(undef, $r2rml, $model);
+		$parser->parse_into_model('http://example.com/', $r2rml, $model);
 		$r2rml = $model;
 	}
 	
-	foreach my $tmc ($r2rml->subjects($rdf->type, $rr->TriplesMapClass))
+	my @TMC = values %{ {
+			map { $_->as_ntriples => $_ }
+			(
+				$r2rml->subjects($rdf->type, $rr->TriplesMap),
+				$r2rml->subjects($rdf->type, $rr->TriplesMapClass),
+				$r2rml->subjects($rr->subjectMap, undef),
+			)
+		} };
+		
+	foreach my $tmc (@TMC)
 	{
 		$self->_r2rml_TriplesMapClass($r2rml, $tmc);
 	}
@@ -404,7 +413,7 @@ RDF::RDB2RDF::R2RML - map relational database to RDF using R2RML
 
 =head1 SYNOPSIS
 
- my $mapper = RDF::RDB2RDF::R2RML->new($r2rml);
+ my $mapper = RDF::RDB2RDF->new('R2RML', $r2rml);
  print $mapper->process_turtle($dbh);
 
 =head1 DESCRIPTION
@@ -418,7 +427,9 @@ This is a subclass of RDF::RDB2RDF::Simple. Differences noted below...
 
 =over 
 
-=item * C<< new($r2rml)>>
+=item * C<< RDF::RDB2RDF::R2RML->new($r2rml) >>
+
+=item * C<< RDF::RDB2RDF->new('R2RML', $r2rml) >>
 
 A single parameter is expected, this can either be an R2RML document as a
 Turtle string, or an L<RDF::Trine::Model> containing R2RML data. If a Turtle
@@ -447,8 +458,6 @@ Limitations
 rr:JoinCondition, rr:child, rr:parent are not yet supported.
 
 =item * rr:defaultGraph is not understood.
-
-=item * Scoping of blank nodes across graphs is incorrect.
 
 =item * Datatype conversions probably not done correctly.
 
