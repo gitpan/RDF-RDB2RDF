@@ -1,5 +1,6 @@
 use Test::More;
 use strict;
+use 5.010;
 
 BEGIN { use_ok('RDF::RDB2RDF') };
 
@@ -65,7 +66,6 @@ done_testing();
 package Local::WGTest::Manifest;
 
 use strict;
-use File::Slurp qw[slurp];
 use RDF::Trine;
 use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
 our ($TEST, $RTEST, $DC);
@@ -74,6 +74,13 @@ BEGIN
 	$TEST  = RDF::Trine::Namespace->new('http://www.w3.org/2006/03/test-description#');
 	$RTEST = RDF::Trine::Namespace->new('http://purl.org/NET/rdb2rdf-test#');
 	$DC    = RDF::Trine::Namespace->new('http://purl.org/dc/elements/1.1/');
+}
+
+sub slurp
+{
+	open my($fh), '<', @_
+		or die "Could not open file @_";
+	local $/ = <$fh>;
 }
 
 sub new
@@ -114,7 +121,7 @@ sub databases
 			$script = slurp($self->relative_file($script));
 			my @script = split /\;\s*$/m, $script;
 			
-			my $filename = $iri->uri eq $ENV{KEEP_DATABASE} ? 'keep.db' : ':memory:';
+			my $filename = ($iri->uri eq ($ENV{KEEP_DATABASE}//'xxx')) ? 'keep.db' : ':memory:';
 			my $dbh = DBI->connect("dbi:SQLite:dbname=${filename}");
 			$dbh->do('PRAGMA foreign_keys = ON;');
 			$dbh->do($_) foreach @script;
@@ -150,7 +157,6 @@ sub tests
 package Local::WGTest::R2RML;
 
 use strict;
-use File::Slurp qw[slurp];
 use JSON qw[to_json];
 use RDF::Trine '0.135';
 use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
@@ -160,6 +166,13 @@ BEGIN
 	$TEST  = RDF::Trine::Namespace->new('http://www.w3.org/2006/03/test-description#');
 	$RTEST = RDF::Trine::Namespace->new('http://purl.org/NET/rdb2rdf-test#');
 	$DC    = RDF::Trine::Namespace->new('http://purl.org/dc/elements/1.1/');
+}
+
+sub slurp
+{
+	open my($fh), '<', @_
+		or die "Could not open file @_";
+	local $/ = <$fh>;
 }
 
 sub new
