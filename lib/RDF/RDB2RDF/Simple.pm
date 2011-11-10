@@ -12,6 +12,7 @@ use overload qw[];
 use RDF::Trine qw[statement blank literal];
 use RDF::Trine::Namespace qw[rdf rdfs owl xsd];
 use Scalar::Util qw[blessed];
+use URI::Escape qw[uri_escape];
 
 sub iri
 {
@@ -36,10 +37,18 @@ sub iri
 	return RDF::Trine::iri("$iri");
 }
 
-use namespace::clean;
-use base qw[RDF::RDB2RDF];
+# make a template from a literal string
+sub mktemplate 
+{
+	my ($self, $string) = @_;
+	$string =~ s!([\\{}])!\\\1!g;
+	return $string;
+}
 
-our $VERSION = '0.004';
+use namespace::clean;
+use parent qw[RDF::RDB2RDF RDF::RDB2RDF::DatatypeMapper];
+
+our $VERSION = '0.005';
 
 sub new
 {
@@ -77,14 +86,6 @@ sub namespaces
 	return %NS;
 }
 
-# make a template from a literal string
-sub mktemplate 
-{
-	my ($self, $string) = @_;
-	$string =~ s!([\\{}])!\\\1!g;
-	return $string;
-}
-
 sub template
 {
 	my ($self, $template, %data) = @_;
@@ -109,6 +110,30 @@ sub template
 	return $template;
 }
 
+sub template_irisafe
+{
+	my ($self, $template, %data) = @_;
+	
+	if (blessed($template) and $template->isa('RDF::Trine::Node'))
+	{
+		return $template;
+	}
+	
+	$self->{uuid} = Data::UUID->new unless $self->{uuid};
+	$data{'+uuid'} = $self->{uuid}->create_str;
+	
+	foreach my $key (sort keys %data)
+	{
+		my $placeholder = sprintf('{%s}', $key);
+		my $replacement = uri_escape($data{$key});
+		$template =~ s!\Q$placeholder!$replacement!g;
+	}
+	
+	$template =~ s!\\([\\{}])!\1!g;
+	
+	return $template;
+}
+
 sub process
 {
 	my ($self, $dbh, $model) = @_;
@@ -122,6 +147,18 @@ sub process
 	}
 
 	return $model;
+}
+
+sub _get_types
+{
+	my ($self, $sth) = @_;
+	
+	my %types;
+	@types{ @{$sth->{NAME}} } = map
+		{ /^\d+$/ ? (scalar $sth->dbh->type_info($_)->{TYPE_NAME}) : $_ }
+		@{$sth->{TYPE}};
+	
+	return \%types;
 }
 
 sub handle_table
@@ -161,14 +198,15 @@ sub handle_table
 		}
 	}
 	
-	my $sth    = $dbh->prepare($sql);
+	my $sth = $dbh->prepare($sql);
 	$sth->execute;
+	my $types = $self->_get_types($sth);
 	
 	my $row_count = 0;
 	ROW: while (my $row = $sth->fetchrow_hashref)
 	{
 		$row_count++;
-		$self->handle_row($dbh, $callback, $table, $row, $row_count);
+		$self->handle_row($dbh, $callback, $table, $row, $types, $row_count);
 	}
 	
 	JMAP: foreach my $map (@{ $tmap->{-jmaps} })
@@ -194,12 +232,13 @@ sub handle_table
 		
 		my $evil_sth = $dbh->prepare($evil_sql);
 		$sth->execute;
+		my $types = $self->_get_types($sth);
 		
 		my $evil_row_count = 0;
 		ROW: while (my $evil_row = $evil_sth->fetchrow_hashref)
 		{
 			$evil_row_count++;
-			$self->handle_jmap($dbh, $callback, $table, $map, $evil_row, $evil_row_count);
+			$self->handle_jmap($dbh, $callback, $table, $map, $evil_row, $types, $evil_row_count);
 		}
 	}
 	
@@ -210,7 +249,7 @@ sub handle_table
 
 sub handle_row
 {
-	my ($self, $dbh, $model, $table, $row, $row_count) = @_;
+	my ($self, $dbh, $model, $table, $row, $types, $row_count) = @_;
 	$model = RDF::Trine::Model->temporary_model unless defined $model;	
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};
 	
@@ -219,14 +258,14 @@ sub handle_row
 	
 	# ->{graph}
 	my $graph = undef;
-	$graph = iri( $self->template($tmap->{graph}, %$row) )
+	$graph = iri( $self->template_irisafe($tmap->{graph}, %$row) )
 		if defined $tmap->{graph};
 	
 	# ->{about}
 	my $subject;
 	if ($tmap->{about})
 	{
-		$subject = $self->template($tmap->{about}, %$row);
+		$subject = $self->template_irisafe($tmap->{about}, %$row);
 	}
 	$subject ||= '[]';
 	
@@ -240,40 +279,40 @@ sub handle_row
 	foreach (@{ $tmap->{-maps} })
 	{
 		# use Data::Dumper; warn Dumper($_);
-		$self->handle_map($dbh, $model, $table, $row, $row_count, $_, $graph, $subject);
+		$self->handle_map($dbh, $model, $table, $row, $types, $row_count, $_, $graph, $subject);
 	}			
 }
 
 sub handle_jmap
 {
-	my ($self, $dbh, $model, $table, $jmap, $row, $row_count) = @_;
+	my ($self, $dbh, $model, $table, $jmap, $row, $types, $row_count) = @_;
 	$model = RDF::Trine::Model->temporary_model unless defined $model;	
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};
 	
 	my $mappings = $self->mappings;
-	my $tmap     = $mappings->{$table};	
+	my $tmap     = $mappings->{$table};
 	
 	# ->{graph}
 	my $graph = undef;
-	$graph = iri( $self->template($tmap->{graph}, %$row) )
+	$graph = iri( $self->template_irisafe($tmap->{graph}, %$row) )
 		if defined $tmap->{graph};
 	
 	# ->{about}
 	my $subject;
 	if ($tmap->{about})
 	{
-		$subject = $self->template($tmap->{about}, %$row);
+		$subject = $self->template_irisafe($tmap->{about}, %$row);
 	}
 	$subject ||= '[]';
 	
-	$self->handle_map($dbh, $model, $table, $row, $row_count, $jmap, $graph, $subject);
+	$self->handle_map($dbh, $model, $table, $row, $types, $row_count, $jmap, $graph, $subject);
 }
 
 { 
 my $parsers = {};
 sub handle_map
 {
-	my ($self, $dbh, $model, $table, $row, $row_count, $map, $graph, $subject) = @_;
+	my ($self, $dbh, $model, $table, $row, $types, $row_count, $map, $graph, $subject) = @_;
 	
 	$model = RDF::Trine::Model->temporary_model unless defined $model;	
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};
@@ -287,7 +326,7 @@ sub handle_map
 	$value = $row{$column} if exists $row{$column};
 	
 	my $lgraph = defined $map->{graph}
-		? iri($self->template($map->{graph}, %row))
+		? iri($self->template_irisafe($map->{graph}, %row))
 		: $graph;
 	
 	if (defined $map->{parse} and uc $map->{parse} eq 'TURTLE')
@@ -314,36 +353,57 @@ sub handle_map
 
 	if ($map->{rev} || $map->{rel})
 	{
+		$predicate = $map->{rev} || $map->{rel};
+		
 		if ($map->{resource})
 		{
-			$value = $self->template($map->{resource}, %row, '_' => $value);
+			$value = $self->template_irisafe($map->{resource}, %row, '_' => $value);
 		}
-		$predicate = $map->{rev} || $map->{rel};
 		$value     = iri($value, $lgraph);
 	}
 	
 	elsif ($map->{property})
 	{
+		$predicate = $map->{property};
+		
 		if ($map->{content})
 		{
 			$value = $self->template($map->{content}, %row, '_' => $value);
 		}
-		$predicate = $map->{property};
-		$value     = literal($value, $map->{lang}, $map->{datatype});
+		
+		if ($map->{lang})
+		{
+			$value = literal($value, $map->{lang});
+		}
+		else
+		{
+			if ($map->{datatype})
+			{
+				$value = literal($value, undef, $map->{datatype});
+			}
+			elsif (!defined $map->{content})
+			{
+				$value = $self->datatyped_literal($value, $types->{$column});
+			}
+			else
+			{
+				$value = literal($value);
+			}
+		}
 	}
 	
 	if (defined $predicate and defined $value)
 	{
 		unless (ref $predicate)
 		{
-			$predicate = $self->template($predicate, %row, '_' => $value);							
+			$predicate = $self->template_irisafe($predicate, %row, '_' => $value);							
 			$predicate = iri($predicate, $lgraph) ;
 		}
 		
 		my $lsubject = iri($subject, $lgraph);
 		if ($map->{about})
 		{
-			$lsubject = iri($self->template($map->{about}, %row), $lgraph);
+			$lsubject = iri($self->template_irisafe($map->{about}, %row), $lgraph);
 		}
 
 		my $st = $map->{rev}
@@ -684,7 +744,7 @@ interpolated as templates. L<RDF::Trine::Node>s are not interpolated.
 
 L<RDF::Trine>, L<RDF::RDB2RDF>, L<RDF::RDB2RDF::R2RML>.
 
-L<http://perlrdf.org/>.
+L<http://www.perlrdf.org/>.
 
 =head1 AUTHOR
 
@@ -696,3 +756,10 @@ Copyright 2011 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
+
+=head1 DISCLAIMER OF WARRANTIES
+
+THIS PACKAGE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+

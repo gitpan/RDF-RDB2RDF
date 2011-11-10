@@ -9,9 +9,9 @@ use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
 use Scalar::Util qw[blessed];
 use URI::Escape qw[uri_escape uri_unescape];
 
-use base qw[RDF::Trine::Store];
+use parent qw[RDF::Trine::Store];
 
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 
 sub new
 {

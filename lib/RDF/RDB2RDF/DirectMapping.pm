@@ -12,14 +12,19 @@ use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
 use Scalar::Util qw[refaddr blessed];
 use URI::Escape qw[];
 
-use base qw[RDF::RDB2RDF];
+use parent qw[RDF::RDB2RDF RDF::RDB2RDF::DatatypeMapper];
 
-our $VERSION = '0.004';
+our $VERSION = '0.005';
 
 sub new
 {
 	my ($class, %args) = @_;
-	$args{prefix} = '' unless defined $args{prefix};
+	
+	$args{prefix}        = '' unless defined $args{prefix};
+	$args{rdfs}          = 0  unless defined $args{rdfs};
+	$args{warn_sql}      = 0  unless defined $args{warn_sql};
+	$args{ignore_tables} = [] unless defined $args{ignore_tables};
+	
 	bless {%args}, $class;
 }
 
@@ -30,8 +35,10 @@ sub uri_escape
 	return $str;
 }
 
-sub prefix :lvalue { $_[0]->{prefix} }
-sub rdfs   :lvalue { $_[0]->{rdfs} }
+sub prefix        :lvalue { $_[0]->{prefix} }
+sub rdfs          :lvalue { $_[0]->{rdfs} }
+sub ignore_tables :lvalue { $_[0]->{ignore_tables} }
+sub warn_sql      :lvalue { $_[0]->{warn_sql} }
 
 sub layout
 {
@@ -39,7 +46,7 @@ sub layout
 
 	unless ($self->{layout}{refaddr($dbh).'|'.$schema})
 	{
-		carp sprintf('READ SCHEMA "%s"', $schema||'%') if $self->{warn_sql};
+		carp sprintf('READ SCHEMA "%s"', $schema||'%') if $self->warn_sql;
 		
 		my $rv     = {};
 		my $info   = DBIx::Admin::TableInfo->new(dbh => $dbh, schema => $schema)->info;	
@@ -128,6 +135,7 @@ sub process
 sub handle_table
 {
 	my ($self, $dbh, $model, $table, $where, $cols) = @_;
+	return if $table ~~ $self->ignore_tables;
 	
 	$model = RDF::Trine::Model->temporary_model unless defined $model;
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};		
@@ -167,7 +175,7 @@ sub handle_table
 		$sql .= ' WHERE ' . (join ' AND ', @w);
 	}
 
-	carp($sql) if $self->{warn_sql};
+	carp($sql) if $self->warn_sql;
 	my $sth = $dbh->prepare($sql);
 	$sth->execute(@values);
 		
@@ -199,29 +207,10 @@ sub handle_table
 			next unless defined $row->{ $column->{column} };
 			
 			my $predicate = iri($self->prefix.$table.'#'.$column->{column});
-			my $value     = $row->{ $column->{column} };
-			my $datatype;
-			
-			if ($column->{type} =~ /^(int|smallint|bigint)/i)
-			{
-				$datatype = $XSD->integer;
-			}
-			elsif ($column->{type} =~ /^(decimal|numeric)/i)
-			{
-				$datatype = $XSD->decimal;
-			}
-			elsif ($column->{type} =~ /^(float|real|double)/i)
-			{
-				$datatype = $XSD->float;
-			}
-			elsif ($column->{type} =~ /^(binary)/i)
-			{
-				$datatype = $XSD->base64Binary;
-				$value    = MIME::Base64::encode_base64($value);
-			}
-			# need to handle BOOLEAN, DATE, TIME and TIMESTAMP.
-			
-			my $object = literal($value, undef, $datatype);
+			my $object    = $self->datatyped_literal(
+				$row->{ $column->{column} },
+				$column->{type},
+				);
 			$callback->(statement($subject, $predicate, $object));
 		}
 		
@@ -238,6 +227,7 @@ sub handle_table
 sub handle_table_rdfs
 {
 	my ($self, $dbh, $model, $table) = @_;
+	return if $table ~~ $self->ignore_tables;
 	
 	$model = RDF::Trine::Model->temporary_model unless defined $model;
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};		
@@ -254,23 +244,9 @@ sub handle_table_rdfs
 		foreach my $column (@{ $layout->{$table}{columns} })
 		{
 			my $predicate = iri($self->prefix.$table.'#'.$column->{column});
-			my $datatype;
-			if ($column->{type} =~ /^(int|smallint|bigint)/i)
-			{
-				$datatype = $XSD->integer;
-			}
-			elsif ($column->{type} =~ /^(decimal|numeric)/i)
-			{
-				$datatype = $XSD->decimal;
-			}
-			elsif ($column->{type} =~ /^(float|real|double)/i)
-			{
-				$datatype = $XSD->float;
-			}
-			elsif ($column->{type} =~ /^(binary)/i)
-			{
-				$datatype = $XSD->base64Binary;
-			}
+			my $dummy     = $self->datatyped_literal('DUMMY', $column->{type});
+			my $datatype  = $dummy->has_datatype ? iri($dummy->literal_datatype) : $RDFS->Literal;
+			
 			$callback->(statement($predicate, $RDF->type, $OWL->DatatypeProperty));
 			$callback->(statement($predicate, $RDFS->label, literal($column->{column})));
 			$callback->(statement($predicate, $RDFS->domain, iri($self->prefix.$table)));
@@ -366,9 +342,12 @@ working draft.
 
 The prefix defaults to the empty string - i.e. relative URIs.
 
-Two extra options are supported: C<rdfs> which controls whether extra Tbox
+Three extra options are supported: C<rdfs> which controls whether extra Tbox
 statements are included in the mapping; C<warn_sql> carps statements to
-STDERR whenever the database is queried.
+STDERR whenever the database is queried (useful for debugging);
+C<ignore_tables> specifies tables to ignore (smart match is used, so the
+value of ignore_tables can be a string, regexp, coderef, or an arrayref
+of all of the above).
 
 =head2 Methods
 
@@ -429,7 +408,7 @@ L<RDF::Trine>, L<RDF::RDB2RDF>.
 
 L<RDF::RDB2RDF::DirectMapping::Store>.
 
-L<http://perlrdf.org/>.
+L<http://www.perlrdf.org/>.
 
 L<http://www.w3.org/TR/2011/WD-rdb-direct-mapping-20110920/>.
 
@@ -443,3 +422,10 @@ Copyright 2011 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
+
+=head1 DISCLAIMER OF WARRANTIES
+
+THIS PACKAGE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+

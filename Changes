@@ -6,6 +6,13 @@ Home page:    <https://metacpan.org/release/RDF-RDB2RDF>
 Bug tracker:  <http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>
 Maintainer:   Toby Inkster <mailto:tobyink@cpan.org>
 
+0.005  2011-11-10
+
+ - Handle SQL datatypes better.
+ - Template substitutions that will result in URIs now correctly uri_encode
+   substituted values.
+ - (Addition) Provide ignore_tables option for DirectMapping.
+
 0.004  2011-10-20
 
  - Further optimise RDF::RDB2RDF::DirectMapping::Store::get_statements
@@ -15,23 +22,23 @@ Maintainer:   Toby Inkster <mailto:tobyink@cpan.org>
    all statements with the pattern share a common subject.
  - Provide warn_sql option for RDF::RDB2RDF::DirectMapping.
  - (Packaging) Module::Package::RDF
- - (Update) use 5.010
  - (Documentation) Document handle_table and handle_table_rdfs methods for
    RDF::RDB2RDF::DirectMapping.
+ - (Update) use 5.010
 
 0.003  2011-09-27
 
+ - (Addition) Include RDF::RDB2RDF::DirectMapping class.
  - (Bugfix) Various.
+ - (Bugfix) Fix blank node scoping in R2RML mapping.
+ - (Addition) Include RDF::RDB2RDF::DirectMapping::Store class.
  - (Packaging) Include more test cases, inspired by RDB2RDF Working Group's
    tests.
- - (Addition) Include RDF::RDB2RDF::DirectMapping class.
- - (Addition) Include RDF::RDB2RDF::DirectMapping::Store class.
- - (Bugfix) Fix blank node scoping in R2RML mapping.
 
 0.002  2011-09-23
 
- - (Addition) Allow 'process' method to take a callback.
  - (Update) Support 20 Sept 2011 Working Draft of R2RML
+ - (Addition) Allow 'process' method to take a callback.
 
 0.001  2011-09-15
 # Initial release
