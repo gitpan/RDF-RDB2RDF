@@ -1,7 +1,8 @@
 package RDF::RDB2RDF::Simple;
 
 use 5.010;
-use common::sense;
+use strict;
+use utf8;
 
 use Carp qw[carp croak];
 use Data::UUID;
@@ -12,54 +13,32 @@ use overload qw[];
 use RDF::Trine qw[statement blank literal];
 use RDF::Trine::Namespace qw[rdf rdfs owl xsd];
 use Scalar::Util qw[blessed];
-use URI::Escape qw[uri_escape];
-
-sub iri
-{
-	my ($iri, $graph) = @_;
-	
-	return $iri
-		if blessed($iri) && $iri->isa('RDF::Trine::Node');
-	return blank()
-		if $iri eq '[]';
-	
-	if ($iri =~ /^_:(.*)$/)
-	{
-		my $ident = $1;
-		$ident =~ s/([^0-9A-Za-wyz])/sprintf('x%04X', ord($1))/eg;
-		if ($graph)
-		{
-			$ident = md5_hex("$graph").$ident;
-		}
-		return blank($ident);
-	}
-	
-	return RDF::Trine::iri("$iri");
-}
-
-# make a template from a literal string
-sub mktemplate 
-{
-	my ($self, $string) = @_;
-	$string =~ s!([\\{}])!\\\1!g;
-	return $string;
-}
+use URI::Escape::Optimistic qw[uri_escape_optimistic];
 
 use namespace::clean;
-use parent qw[RDF::RDB2RDF RDF::RDB2RDF::DatatypeMapper];
+use base qw[
+	RDF::RDB2RDF
+	RDF::RDB2RDF::DatatypeMapper
+];
 
-our $VERSION = '0.005';
+our $AUTHORITY = 'cpan:TOBYINK';
+our $VERSION   = '0.006';
 
 sub new
 {
 	my ($class, %mappings) = @_;
-	my $ns = delete $mappings{-namespaces};
+	my $ns   = delete($mappings{-namespaces}) // +{};
+	my $base = delete($mappings{-base})       // 'http://example.com/base/';
 	while (my ($k, $v) = each %$ns)
 	{
 		$ns->{$k} = RDF::Trine::Namespace->new($v)
 			unless (blessed($v) and $v->isa('RDF::Trine::Namespace'));
 	}
-	bless {mappings => \%mappings, namespaces=>$ns}, $class; 
+	bless {
+		mappings   => \%mappings,
+		namespaces => $ns,
+		base       => $base,
+	}, $class; 
 }
 
 sub mappings
@@ -88,7 +67,8 @@ sub namespaces
 
 sub template
 {
-	my ($self, $template, %data) = @_;
+	my ($self, $template, $data, $types, $process) = @_;
+	$process = sub { +shift } unless ref $process eq 'CODE';
 	
 	if (blessed($template) and $template->isa('RDF::Trine::Node'))
 	{
@@ -96,49 +76,73 @@ sub template
 	}
 	
 	$self->{uuid} = Data::UUID->new unless $self->{uuid};
-	$data{'+uuid'} = $self->{uuid}->create_str;
+	$data->{'+uuid'} = $self->{uuid}->create_str;
 	
-	foreach my $key (sort keys %data)
+	$template =~ s(
+		(?<!\\) \{               # opening unescaped brace
+		(                        # start capturing
+			(?: \\\} | [^}] )+    # escaped closing braces and non-brace characters
+		)                        # finish capturing
+		\}                       # closing brace
+	)
 	{
-		my $placeholder = sprintf('{%s}', $key);
-		my $replacement = $data{$key};
-		$template =~ s!\Q$placeholder!$replacement!g;
-	}
+		(my $key = $1)
+			=~ s/\\\}/\}/g;
+		my ($value, $type);
+		if ($key =~ /^"(.+)"$/)
+		{
+			$value = ($data->{$1}  // '');
+			$type  = ($types->{$1} // 'varchar');
+		}
+		else
+		{
+			$value = ($data->{$key}  // $data->{lc $key}  // '');
+			$type  = ($types->{$key} // $types->{lc $key} // '');
+		}
+		
+		$process->( $self->datatyped_literal($value, $type)->literal_value );
+	}gex;
 	
-	$template =~ s!\\([\\{}])!\1!g;
+	$template =~ s< \\ ( [{}\\] ) >< $1 >xg;
 	
 	return $template;
 }
 
 sub template_irisafe
 {
-	my ($self, $template, %data) = @_;
+	template(@_, \&URI::Escape::Optimistic::uri_escape_optimistic);
+}
+
+sub iri
+{
+	my ($self, $iri, $graph) = @_;
 	
-	if (blessed($template) and $template->isa('RDF::Trine::Node'))
+	return $iri
+		if blessed($iri) && $iri->isa('RDF::Trine::Node');
+	return blank()
+		if $iri eq '[]';
+	
+	if ($iri =~ /^_:(.*)$/)
 	{
-		return $template;
+		my $ident = $1;
+		$ident =~ s/([^0-9A-Za-wyz])/sprintf('x%04X', ord($1))/eg;
+		if ($graph)
+		{
+			$ident = md5_hex("$graph").$ident;
+		}
+		return blank($ident);
 	}
 	
-	$self->{uuid} = Data::UUID->new unless $self->{uuid};
-	$data{'+uuid'} = $self->{uuid}->create_str;
-	
-	foreach my $key (sort keys %data)
-	{
-		my $placeholder = sprintf('{%s}', $key);
-		my $replacement = uri_escape($data{$key});
-		$template =~ s!\Q$placeholder!$replacement!g;
-	}
-	
-	$template =~ s!\\([\\{}])!\1!g;
-	
-	return $template;
+	return RDF::Trine::Node::Resource->new("$iri", $self->{base});
 }
 
 sub process
 {
 	my ($self, $dbh, $model) = @_;
 	$model = RDF::Trine::Model->temporary_model unless defined $model;	
-	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};
+	my $callback = (ref $model eq 'CODE')
+		? $model
+		: sub { $model->add_statement(@_) };
 	
 	my $mappings = $self->mappings;
 	TABLE: foreach my $table (keys %$mappings)
@@ -149,14 +153,37 @@ sub process
 	return $model;
 }
 
+sub _mktemplate 
+{
+	my ($self, $string) = @_;
+	$string =~ s! ( [\\{}] ) !\\$1!gx;
+	return $string;
+}
+
 sub _get_types
 {
-	my ($self, $sth) = @_;
+	my ($self, $sth, $dbh) = @_;
 	
 	my %types;
-	@types{ @{$sth->{NAME}} } = map
-		{ /^\d+$/ ? (scalar $sth->dbh->type_info($_)->{TYPE_NAME}) : $_ }
-		@{$sth->{TYPE}};
+	if (exists $sth->{pg_type})
+	{
+		# For PostgreSQL, this appears to give better results.
+		# Particularly in the case of columns which don't exist
+		# in the table itself. (e.g. aggregation, casting,
+		# functions, etc)
+		@types{ @{$sth->{NAME}} } =
+			@{ $sth->{pg_type} };
+	}
+	else
+	{eval{
+		@types{ @{$sth->{NAME}} } =
+			map {
+				/^\d+$/
+					? scalar($dbh->type_info($_)->{TYPE_NAME})
+					: $_
+			}
+			@{ $sth->{TYPE} };
+	}}
 	
 	return \%types;
 }
@@ -178,7 +205,7 @@ sub handle_table
 	
 	# ->{sql}
 	my $sql    = "SELECT $select FROM $from";
-	$sql = $tmap->{sql} if $tmap->{sql} =~ /^\s*SELECT/i;
+	$sql = $tmap->{sql} if $tmap->{sql};# =~ /^\s*SELECT/i;
 	
 	### Re-jig mapping structure.
 	{
@@ -198,9 +225,9 @@ sub handle_table
 		}
 	}
 	
-	my $sth = $dbh->prepare($sql);
+	my $sth = $dbh->prepare($sql) or return;
 	$sth->execute;
-	my $types = $self->_get_types($sth);
+	my $types = $self->_get_types($sth, $dbh);
 	
 	my $row_count = 0;
 	ROW: while (my $row = $sth->fetchrow_hashref)
@@ -232,7 +259,7 @@ sub handle_table
 		
 		my $evil_sth = $dbh->prepare($evil_sql);
 		$sth->execute;
-		my $types = $self->_get_types($sth);
+		my $types = $self->_get_types($sth, $dbh);
 		
 		my $evil_row_count = 0;
 		ROW: while (my $evil_row = $evil_sth->fetchrow_hashref)
@@ -258,29 +285,42 @@ sub handle_row
 	
 	# ->{graph}
 	my $graph = undef;
-	$graph = iri( $self->template_irisafe($tmap->{graph}, %$row) )
+	$graph = $self->iri( $self->template_irisafe($tmap->{graph}, $row, $types) )
 		if defined $tmap->{graph};
 	
 	# ->{about}
-	my $subject;
-	if ($tmap->{about})
-	{
-		$subject = $self->template_irisafe($tmap->{about}, %$row);
-	}
-	$subject ||= '[]';
+	my $subject = $self->_extract_subject_from_row($tmap, $row, $types);
 	
 	# ->{typeof}
 	foreach (@{ $tmap->{typeof} })
 	{
-		$_ = iri($_, $graph) unless ref $_;
-		$callback->(statement(iri($subject, $graph), $rdf->type, $_));
+		$_ = $self->iri($_, $graph) unless ref $_;
+		$callback->(statement($self->iri($subject, $graph), $rdf->type, $_));
 	}
 
 	foreach (@{ $tmap->{-maps} })
 	{
-		# use Data::Dumper; warn Dumper($_);
 		$self->handle_map($dbh, $model, $table, $row, $types, $row_count, $_, $graph, $subject);
 	}			
+}
+
+sub _extract_subject_from_row
+{
+	my ($self, $tmap, $row, $types) = @_;
+	if ($tmap->{about} and $tmap->{_about_is_template})
+	{
+		return $self->template_irisafe($tmap->{about}, $row, $types);
+	}
+	elsif ($tmap->{about} and $tmap->{about} =~ m< ^ {\" ([^}]+?) \"} $ >x)
+	{
+		return $row->{$1};
+	}
+	elsif ($tmap->{about} and $tmap->{about} =~ m< ^ { ([^}]+?) } $ >x)
+	{
+		return $row->{$1} if exists $row->{$1};
+		return $row->{lc $1};
+	}
+	return ($tmap->{about} // '[]');
 }
 
 sub handle_jmap
@@ -294,25 +334,19 @@ sub handle_jmap
 	
 	# ->{graph}
 	my $graph = undef;
-	$graph = iri( $self->template_irisafe($tmap->{graph}, %$row) )
+	$graph = $self->iri( $self->template_irisafe($tmap->{graph}, $row, $types) )
 		if defined $tmap->{graph};
 	
 	# ->{about}
-	my $subject;
-	if ($tmap->{about})
-	{
-		$subject = $self->template_irisafe($tmap->{about}, %$row);
-	}
-	$subject ||= '[]';
+	my $subject = $self->_extract_subject_from_row($tmap, $row, $types);
 	
 	$self->handle_map($dbh, $model, $table, $row, $types, $row_count, $jmap, $graph, $subject);
 }
 
-{ 
-my $parsers = {};
 sub handle_map
 {
 	my ($self, $dbh, $model, $table, $row, $types, $row_count, $map, $graph, $subject) = @_;
+	state $parsers = {};
 	
 	$model = RDF::Trine::Model->temporary_model unless defined $model;	
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};
@@ -322,33 +356,37 @@ sub handle_map
 	my %row      = %$row;
 	my $column   = $map->{column};
 	
-	my ($predicate, $value);
-	$value = $row{$column} if exists $row{$column};
+	my ($predicate, $value, $loose);
+	if ($column =~ /^"(.+)"$/)
+		{ $column = $1; $value = $row{$column} }
+	elsif (exists $row{$column})
+		{ $loose = 1; $value = $row{$column} }
+	elsif (exists $row{lc $column})
+		{ $loose = 1; $value = $row{lc $column} }
 	
 	my $lgraph = defined $map->{graph}
-		? iri($self->template_irisafe($map->{graph}, %row))
+		? $self->iri($self->template_irisafe($map->{graph}, $row, $types))
 		: $graph;
-	
+		
 	if (defined $map->{parse} and uc $map->{parse} eq 'TURTLE')
 	{
 		return unless length $value;
 		
 		my %NS = $self->namespaces;
-		my $turtle = join '', map { sprintf("\@prefix %s: <%s>.\n", $_, $NS{$_}) } keys %NS;
-		$turtle .= sprintf("\@base <%s>.\n", $subject->uri);
-		$turtle .= "$value\n";
-		eval {
+		my $turtle =
+			join '',
+			(map { sprintf("\@prefix %s: <%s>.\n", $_, $NS{$_}) } keys %NS),
+			sprintf("\@base <%s>.\n", $subject->uri),
+			$value,
+			"\n";
+		return eval {
 			$parsers->{ $map->{parse} } = RDF::Trine::Parser->new($map->{parse});
-			if ($lgraph)
-			{
-				$parsers->{ $map->{parse} }->parse($subject, $turtle, sub { $callback->($_[0], $lgraph); });
-			}
-			else
-			{
-				$parsers->{ $map->{parse} }->parse($subject, $turtle, $callback);
-			}
+			$parsers->{ $map->{parse} }->parse(
+				$subject,
+				$turtle,
+				($lgraph ? sub { $callback->($_[0], $lgraph) } : $callback),
+			);
 		};
-		return;
 	}
 
 	if ($map->{rev} || $map->{rel})
@@ -357,9 +395,9 @@ sub handle_map
 		
 		if ($map->{resource})
 		{
-			$value = $self->template_irisafe($map->{resource}, %row, '_' => $value);
+			$value = $self->template_irisafe($map->{resource}, +{ %row, '_' => $value }, $types);
 		}
-		$value     = iri($value, $lgraph);
+		$value = $self->iri($value, $lgraph);
 	}
 	
 	elsif ($map->{property})
@@ -368,7 +406,7 @@ sub handle_map
 		
 		if ($map->{content})
 		{
-			$value = $self->template($map->{content}, %row, '_' => $value);
+			$value = $self->template($map->{content}, +{ %row, '_' => $value }, $types);
 		}
 		
 		if ($map->{lang})
@@ -383,7 +421,9 @@ sub handle_map
 			}
 			elsif (!defined $map->{content})
 			{
-				$value = $self->datatyped_literal($value, $types->{$column});
+				my $type = $types->{$column};
+				$type = $types->{lc $column} if $loose && not exists $types->{$column};
+				$value = $self->datatyped_literal($value, $type);
 			}
 			else
 			{
@@ -396,14 +436,14 @@ sub handle_map
 	{
 		unless (ref $predicate)
 		{
-			$predicate = $self->template_irisafe($predicate, %row, '_' => $value);							
-			$predicate = iri($predicate, $lgraph) ;
+			$predicate = $self->template_irisafe($predicate, +{ %row, '_' => $value }, $types);
+			$predicate = $self->iri($predicate, $lgraph) ;
 		}
 		
-		my $lsubject = iri($subject, $lgraph);
+		my $lsubject = $self->iri($subject, $lgraph);
 		if ($map->{about})
 		{
-			$lsubject = iri($self->template_irisafe($map->{about}, %row), $lgraph);
+			$lsubject = $self->iri($self->template_irisafe($map->{about}, $row, $types), $lgraph);
 		}
 
 		my $st = $map->{rev}
@@ -419,8 +459,7 @@ sub handle_map
 			$callback->($st);
 		}
 	}
-} # /sub handle_map
-} # /scope for $parsers
+}
 
 sub process_turtle
 {
@@ -481,23 +520,23 @@ sub _export
 	
 	if (blessed($thingy) and $thingy->isa('RDF::Trine::Node::Resource'))
 	{
-		return $self->mktemplate($thingy->uri);
+		return $self->_mktemplate($thingy->uri);
 	}
 
 	if (blessed($thingy) and $thingy->isa('RDF::Trine::Node::BlankNode'))
 	{
-		return '_:'.$self->mktemplate($thingy->identifier);
+		return '_:'.$self->_mktemplate($thingy->identifier);
 	}
 
 	if (blessed($thingy) and $thingy->isa('RDF::Trine::Node::Literal'))
 	{
 		warn "This shouldn't happen!";
-		return $self->mktemplate($thingy->literal_value);
+		return $self->_mktemplate($thingy->literal_value);
 	}
 	
 	if (blessed($thingy) and $thingy->isa('RDF::Trine::Namespace'))
 	{
-		return $self->mktemplate($thingy->uri->uri);
+		return $self->_mktemplate($thingy->uri->uri);
 	}
 	
 	warn "This shouldn't happen either!" if ref $thingy;
@@ -505,6 +544,10 @@ sub _export
 }
 
 1;
+
+__END__
+
+=encoding utf8
 
 =head1 NAME
 
@@ -740,6 +783,11 @@ Pretty much anywhere where a URI or literal value is expected, you can either
 give a string, or an L<RDF::Trine::Node>. In cases of strngs, they will be
 interpolated as templates. L<RDF::Trine::Node>s are not interpolated.
 
+=head1 BUGS
+
+Please report any bugs to
+L<http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>.
+
 =head1 SEE ALSO
 
 L<RDF::Trine>, L<RDF::RDB2RDF>, L<RDF::RDB2RDF::R2RML>.
@@ -752,7 +800,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011 Toby Inkster
+Copyright 2011-2012 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

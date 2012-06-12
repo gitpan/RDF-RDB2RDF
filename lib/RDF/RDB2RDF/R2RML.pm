@@ -1,7 +1,8 @@
 package RDF::RDB2RDF::R2RML;
 
 use 5.010;
-use common::sense;
+use strict;
+use utf8;
 
 use Digest::MD5 qw[md5_hex];
 use RDF::Trine qw[statement blank literal];
@@ -9,18 +10,20 @@ use RDF::Trine::Namespace qw[rdf rdfs owl xsd];
 use Scalar::Util qw[blessed];
 use Storable qw[dclone];
 
-use namespace::clean;
-
 our $rr = RDF::Trine::Namespace->new('http://www.w3.org/ns/r2rml#');
 
-use parent qw[RDF::RDB2RDF::Simple];
+use namespace::clean;
+use base qw[
+	RDF::RDB2RDF::Simple
+];
 
-our $VERSION = '0.005';
+our $AUTHORITY = 'cpan:TOBYINK';
+our $VERSION   = '0.006';
 
 sub new
 {
 	my ($class, $r2rml) = @_;
-	my $self           = $class->SUPER::new();
+	my $self = $class->SUPER::new();
 	$self->_r2rml($r2rml);
 	return $self;
 }
@@ -235,11 +238,13 @@ sub _r2rml_SubjectMapClass
 	{
 		my ($col) = grep { $_->is_literal } $r2rml->objects($smc, $rr->column);
 		$mapping->{about} = sprintf('{%s}', $col->literal_value) if $col;
+		$mapping->{_about_is_column} = 1 if $col;
 	}
 	unless ($mapping->{about})
 	{
 		my ($tmpl) = grep { $_->is_literal } $r2rml->objects($smc, $rr->template);
 		$mapping->{about} = $tmpl->literal_value if $tmpl;
+		$mapping->{_about_is_template} = 1 if $tmpl;
 	}
 	
 	# termtype
@@ -251,6 +256,8 @@ sub _r2rml_SubjectMapClass
 					{ $_->as_ntriples }
 			}
 		$r2rml->objects_for_predicate_list($smc, $rr->termType, $rr->termtype);
+	$termtype //= '';
+	
 	if ($mapping->{about} and $termtype =~ /^blank/i)
 	{
 		$mapping->{about} = sprintf('_:%s', $mapping->{about})
@@ -357,19 +364,19 @@ sub _r2rml_ObjectMapClass
 	
 	my ($datatype, $language, $termtype, $column);
 	my ($o) = map {
-			if ($_->is_resource)   { $termtype = 'IRI'; $_->uri; }
+			if ($_->is_resource)   { $termtype = 'IRI'; $_->value; }
 			elsif ($_->is_blank)   { $termtype = 'BlankNode'; $_->as_ntriples; }
 			elsif ($_->is_literal) { $datatype = $_->literal_datatype; $language = $_->literal_value_language; $termtype = 'Literal'; $_->literal_value; }
 			else                   { $_->as_ntriples; }
 		}
 		$r2rml->objects_for_predicate_list($omc, $rr->constant, $rr->object);
-	unless ($o)
+	unless (defined $o)
 	{
 		my ($col) = grep { $_->is_literal } $r2rml->objects($omc, $rr->column);
 		$o        = sprintf('{%s}', $col->literal_value) if $col;
 		$column   = $col->literal_value if $col;
 	}
-	unless ($o)
+	unless (defined $o)
 	{
 		my ($tmpl) = grep { $_->is_literal } $r2rml->objects($omc, $rr->template);
 		$o = $tmpl->literal_value if $tmpl;
@@ -395,7 +402,7 @@ sub _r2rml_ObjectMapClass
 		$r2rml->objects_for_predicate_list($omc, $rr->termType, $rr->termtype)
 		unless $termtype;
 	
-	$termtype ||= 'Literal' if $datatype||$language;
+	$termtype ||= 'Literal' if $datatype || $language || defined $column;
 	$termtype ||= 'IRI';
 	
 	$o = sprintf('_:%s', $o)
@@ -405,6 +412,7 @@ sub _r2rml_ObjectMapClass
 	
 	if ($column)
 	{
+		#$column = $1 if $column =~ m{^"(.+)"$};
 		$map->{column} = $column;
 	}
 	else
@@ -458,6 +466,10 @@ sub _r2rml_RefObjectMapClass
 
 1;
 
+__END__
+
+=encoding utf8
+
 =head1 NAME
 
 RDF::RDB2RDF::R2RML - map relational database to RDF using R2RML
@@ -469,8 +481,9 @@ RDF::RDB2RDF::R2RML - map relational database to RDF using R2RML
 
 =head1 DESCRIPTION
 
-This class offers support for W3C R2RML, based on the 20 Sept 2011 working
-draft. See the BUGS section below for a list on unimplemented areas.
+This class offers support for W3C R2RML, based on the 29 May 2012 working
+draft. See the COMPLIANCE AND COMPATIBILITY section below for a list on
+unimplemented areas.
 
 This is a subclass of RDF::RDB2RDF::Simple. Differences noted below...
 
@@ -499,9 +512,11 @@ C<< no_r2rml => 1 >> can disable that feature.
 
 =back
 
-=head1 BUGS
 
-Limitations
+=head1 COMPLIANCE AND COMPATIBILITY
+
+This implementation should be mostly compliant with the Direct Mapping
+specification, with the following provisos:
 
 =over
 
@@ -512,13 +527,39 @@ rr:JoinCondition, rr:child, rr:parent are only partially working.
 
 =back
 
+Other quirks are database-specific:
+
+=over
+
+=item * This module expects DBI to return utf8 character strings. Depending
+on your database engine, you might need to play games with DBI and
+your database server to get this working. If you're using 7-bit safe
+ASCII, then this probably doesn't concern you.
+
+=item * Different databases support different SQL datatypes. This module
+attempts to map them to their XSD equivalents, but may not recognise
+some exotic ones.
+
+=item * This module has only been extensively tested on SQLite 3.6.23.1
+and PostgreSQL 8.4.4. I know of no reason it shouldn't work with other
+relational database engines, provided they are supported by DBI, but as
+with all things SQL, I wouldn't be surprised if there were one or two
+problems. Patches welcome.
+
+=back
+
+=head1 BUGS
+
+Please report any bugs to
+L<http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>.
+
 =head1 SEE ALSO
 
 L<RDF::Trine>, L<RDF::RDB2RDF>, L<RDF::RDB2RDF::Simple>.
 
 L<http://www.perlrdf.org/>.
 
-L<http://www.w3.org/TR/2011/WD-r2rml-20110920/>.
+L<http://www.w3.org/TR/2012/WD-r2rml-20120529/>.
 
 =head1 AUTHOR
 
@@ -526,7 +567,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011 Toby Inkster
+Copyright 2011-2012 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

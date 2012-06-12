@@ -6,41 +6,51 @@ Home page:    <https://metacpan.org/release/RDF-RDB2RDF>
 Bug tracker:  <http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>
 Maintainer:   Toby Inkster <mailto:tobyink@cpan.org>
 
+0.006  2012-06-12
+
+ - (Addition) RDF::RDB2RDF::DirectMapping::Store supports new_with_config.
+ - (Addition) RDF::TrineX::Store::DirectMapping is now an alias for
+   RDF::RDB2RDF::DirectMapping::Store.
+ - (Packaging) RDB2RDF Working Group tests are now 'xt'.
+ - (Packaging) Reduce dependencies (parent.pm, common::sense,
+   DBIx::Admin::TableInfo, etc).
+ - A number of small changes to fix compliance issues with R2RML and Direct
+   Mapping test suites.
+
 0.005  2011-11-10
 
+ - (Addition) Provide ignore_tables option for DirectMapping.
  - Handle SQL datatypes better.
  - Template substitutions that will result in URIs now correctly uri_encode
    substituted values.
- - (Addition) Provide ignore_tables option for DirectMapping.
 
 0.004  2011-10-20
 
+ - (Documentation) Document handle_table and handle_table_rdfs methods for
+   RDF::RDB2RDF::DirectMapping.
+ - (Packaging) Module::Package::RDF
+ - (Update) use 5.010
  - Further optimise RDF::RDB2RDF::DirectMapping::Store::get_statements
    allowing it to narrow down the list of columns to select from the
    database when fewer than '*' are needed.
  - Optimise RDF::RDB2RDF::DirectMapping::Store::get_pattern in cases when
    all statements with the pattern share a common subject.
  - Provide warn_sql option for RDF::RDB2RDF::DirectMapping.
- - (Packaging) Module::Package::RDF
- - (Documentation) Document handle_table and handle_table_rdfs methods for
-   RDF::RDB2RDF::DirectMapping.
- - (Update) use 5.010
 
 0.003  2011-09-27
 
  - (Addition) Include RDF::RDB2RDF::DirectMapping class.
- - (Bugfix) Various.
- - (Bugfix) Fix blank node scoping in R2RML mapping.
  - (Addition) Include RDF::RDB2RDF::DirectMapping::Store class.
+ - (Bugfix) Fix blank node scoping in R2RML mapping.
+ - (Bugfix) Various.
  - (Packaging) Include more test cases, inspired by RDB2RDF Working Group's
    tests.
 
 0.002  2011-09-23
 
- - (Update) Support 20 Sept 2011 Working Draft of R2RML
  - (Addition) Allow 'process' method to take a callback.
+ - (Update) Support 20 Sept 2011 Working Draft of R2RML
 
-0.001  2011-09-15
-# Initial release
+0.001  2011-09-15  # Initial release
 
 

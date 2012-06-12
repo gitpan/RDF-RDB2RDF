@@ -27,6 +27,10 @@ DESCRIPTION
     same mapping as RDF::RDB2RDF::DirectMapping but provides the same
     interface as RDF::Trine::Store.
 
+BUGS
+    Please report any bugs to
+    <http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>.
+
 SEE ALSO
     RDF::Trine.
 
@@ -40,7 +44,7 @@ AUTHOR
     Toby Inkster <tobyink@cpan.org>.
 
 COPYRIGHT
-    Copyright 2011 Toby Inkster
+    Copyright 2011-2012 Toby Inkster
 
     This library is free software; you can redistribute it and/or modify it
     under the same terms as Perl itself.

@@ -1,21 +1,31 @@
 package RDF::RDB2RDF::DirectMapping::Store;
 
 use 5.010;
-use common::sense;
+use strict;
+use utf8;
 
-use Carp qw[carp croak];
+use Carp qw[];
+use DBI;
 use RDF::Trine;
 use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
 use Scalar::Util qw[blessed];
 use URI::Escape qw[uri_escape uri_unescape];
 
-use parent qw[RDF::Trine::Store];
+use namespace::clean;
+use base qw[
+	RDF::Trine::Store
+	RDF::RDB2RDF::DirectMapping::Store::Mixin::SuperGetPattern
+];
 
-our $VERSION = '0.005';
+our $AUTHORITY = 'cpan:TOBYINK';
+our $VERSION   = '0.006';
 
 sub new
 {
-	my ($class, $dbh, $mapping) = @_;
+	my $class   = shift;
+	my $dbh     = shift;
+	my $mapping = shift;
+	my %options = ref($_[0]) ? %{ +shift } : @_;
 	
 	my $schema;
 	if (ref $dbh eq 'ARRAY')
@@ -29,7 +39,7 @@ sub new
 		unless ($layout->{$table}{keys}
 		and grep { $_->{primary} } values %{$layout->{$table}{keys}})
 		{
-			croak("Table $table lacks a primary key.");
+			Carp::croak("Table $table lacks a primary key.");
 		}
 	}
 	
@@ -37,12 +47,34 @@ sub new
 		dbh      => $dbh,
 		schema   => $schema,
 		mapping  => $mapping,
+		options  => \%options,
 		}, $class;
+}
+
+sub _new_with_config
+{
+	my ($class, $config) = @_;
+	$config = +{ %$config }; # shallow clone
+	
+	my $dbh = DBI->connect(
+		(delete($config->{dsn})      // do { Carp::croak "Need dsn!" }),
+		(delete($config->{username}) // undef),
+		(delete($config->{password}) // undef),
+	);
+	$dbh = [
+		$dbh,
+		delete($config->{schema}),
+	] if exists $config->{schema};
+	my $mapping = RDF::RDB2RDF::DirectMapping->new(
+		%$config,
+	);
+	return $class->new($dbh, $mapping, $config);
 }
 
 sub dbh     :lvalue { $_[0]->{dbh} }
 sub schema  :lvalue { $_[0]->{schema} }
 sub mapping :lvalue { $_[0]->{mapping} }
+sub options :lvalue { $_[0]->{options} }
 
 sub get_pattern
 {
@@ -70,7 +102,7 @@ sub get_pattern
 				if (defined $s_prefix and defined $s_table and $s_divider eq '/' and defined $s_bit)
 				{
 					$table = $s_table;
-					$where = $self->handle_bit($table, $s_bit);
+					$where = $self->_handle_bit($table, $s_bit);
 				}
 			}
 			else
@@ -109,7 +141,7 @@ sub get_pattern
 		}
 	}
 	
-	return $self->SUPER::get_pattern(@_);
+	return $self->_SUPER_get_pattern(@_);
 }
 
 sub get_statements
@@ -201,8 +233,8 @@ sub get_statements
 		return $NULL
 			unless $p_divider eq '#';
 			
-		# TODO: better handling for "ref-".
-		if ($p_bit =~ /^ref-/)
+		# TODO: better handling for "ref=".
+		if ($p_bit =~ /^ref=/)
 		{
 			return $NULL if blessed($o) && $o->is_literal;
 		}
@@ -257,7 +289,7 @@ sub get_statements
 			unless $s_divider eq '/';
 
 		# Needs to be some conditions to identify the individual.
-		my $conditions = $self->handle_bit($table, $s_bit);
+		my $conditions = $self->_handle_bit($table, $s_bit);
 		return $NULL unless $conditions;
 
 		# Add conditions to $where
@@ -288,7 +320,7 @@ sub get_statements
 	return RDF::Trine::Iterator::Graph->new(\@results);
 }
 
-sub handle_bit
+sub _handle_bit
 {
 	my ($self, $table, $bit) = @_;
 	
@@ -296,8 +328,8 @@ sub handle_bit
 	my ($pkey) = grep { $_->{primary} } values %{$layout->{$table}{keys}};
 	
 	my $regex   =
-		join '\.',
-		map { sprintf('%s-(.*)', quotemeta(uri_escape($_))) }
+		join '\;',
+		map { sprintf('%s=(.*)', quotemeta(_uri_escape($_))) }
 		@{$pkey->{columns}};
 	
 #	warn "'$bit' =~ /$regex/";
@@ -313,6 +345,13 @@ sub handle_bit
 	}
 	
 	return;
+}
+
+sub _uri_escape
+{
+	my $s = uri_escape(shift);
+	$s =~ s/\+/%20/g;
+	$s;
 }
 
 sub split_uri
@@ -354,20 +393,332 @@ sub count_statements
 
 sub add_statement
 {
-	croak "add_statement not implemented yet.";
+	my ($self, $st, $ctxt, $opt) = @_;
+	
+	my %merged = (
+		%{ $self->options },
+		%$opt,
+	);	
+	local $self->{options} = \%merged;
+	
+	if ($ctxt or $st->can('context') && $st->context)
+	{
+		$self->_carp(
+			add => $st,
+			"this store does not accept quads; treating as a triple",
+			);
+	}
+	
+	my $already = $self->get_statements(
+		$st->subject,
+		$st->predicate,
+		$st->object,
+	);
+	return if $already->next;
+
+	return $self->_croak(
+		add => $st,
+		"contains blank node",
+		) if grep { $_->is_blank } (
+			$st->subject,
+			$st->predicate,
+			$st->object,
+		);
+
+	my ($s_prefix, $s_table, $s_divider, $s_bit) = $self->split_uri($st->subject);
+	my ($p_prefix, $p_table, $p_divider, $p_bit) = $self->split_uri($st->predicate);
+
+	return $self->_croak(
+		add => $st,
+		"subject and predicate are not contained within this database according to mapping",
+		)
+		unless defined $s_prefix
+		&&     defined $p_prefix
+		&&     $s_prefix eq $p_prefix;
+	
+	return $self->_croak(
+		add => $st,
+		"subject and predicate not from matching tables",
+		)
+		unless defined $s_table
+		&&     defined $p_table
+		&&     $s_table eq $p_table;
+		
+	return $self->_croak(
+		add => $st,
+		"table $s_table is ignored by mapping",
+		)
+		if $s_table ~~ $self->mapping->ignore_tables;
+	
+	return $self->_croak(
+		add => $st,
+		"subject not a 'slash URI'",
+		)
+		unless defined $s_divider
+		&&     $s_divider eq '/';
+
+	return $self->_croak(
+		add => $st,
+		"predicate not a 'hash URI'",
+		)
+		unless defined $p_divider
+		&&     $p_divider eq '#';
+
+	if ($st->object->is_literal)
+	{
+		return $self->_croak(
+			add => $st,
+			"predicate has non-literal range, but object is literal",
+			)
+			if defined $p_bit
+			&& $p_bit =~ /^ref=/;
+		
+		return $self->_carp(
+			add => $st,
+			"literal language ignored",
+			)
+			if $st->object->has_language;
+		
+		my $table  = $self->schema ? sprintf('%s.%s', $self->schema, $p_table) : $p_table ;
+		my $index  = $self->_handle_bit($s_table, $s_bit);
+		my $column = $p_bit;
+		my $value  = $st->object->literal_value;
+		my $layout = $self->mapping->layout($self->dbh, $self->schema);
+		
+		return $self->_croak(
+			add => $st,
+			"table $table has no column $column",
+			)
+			unless grep { $_->{column} eq $column }
+			            @{ $layout->{$table}{columns} };
+		
+		my $sth = $self->dbh->prepare(sprintf(
+			'SELECT CASE WHEN %s IS NULL THEN 1 ELSE 2 END AS x FROM %s WHERE %s',
+			$column,
+			$table,
+			join(q[ AND ] => map { "$_=?" } sort keys %$index)
+		));
+		$sth->execute(map { $index->{$_} } sort keys %$index);
+
+		if (my($r) = $sth->fetchrow_array)
+		{
+			if ($r==2
+			and defined $self->options->{overwrite}
+			and not $self->options->{overwrite})
+			{
+				return $self->_carp(
+					add => $st,
+					"will not overwrite existing value",
+					);
+			}
+			
+			my $sth = $self->dbh->prepare(sprintf(
+				'UPDATE %s SET %s=? WHERE %s',
+				$table,
+				$column,
+				join(q[ AND ] => map { "$_=?" } sort keys %$index)
+			));
+			$sth->execute($value, map { $index->{$_} } sort keys %$index)
+				or $self->_croak(add => $st, "could not UPDATE database");
+			return;
+		}
+		else
+		{
+			my $sth = $self->dbh->prepare(sprintf(
+				'INSERT INTO %s (%s, %s) VALUES (?, %s)',
+				$table,
+				$column,
+				join(q[, ] => sort keys %$index),
+				join(q[, ] => map { ;'?' } keys %$index),
+			));
+			$sth->execute($value, map { $index->{$_} } sort keys %$index)
+				or $self->_croak(add => $st, "could not INSERT into database");
+			return;
+		}
+	}
+	else
+	{
+		return $self->_croak(
+			add => $st,
+			"predicate has literal range, but non-literal value",
+			)
+			if defined $p_bit
+			&& $p_bit !~ /^ref=/;
+		
+		return $self->_croak(
+			add => $st,
+			"non-literal objects not implemented yet",
+			);
+	}
 }
 
 sub remove_statement
 {
-	croak "remove_statement not implemented yet.";
+	my ($self, $st, $ctxt, $opt) = @_;
+	
+	my %merged = (
+		%{ $self->options },
+		%$opt,
+	);	
+	local $self->{options} = \%merged;
+	
+	if ($ctxt or $st->can('context') && $st->context)
+	{
+		$self->_carp(
+			remove => $st,
+			"this store does not accept quads; treating as a triple",
+			);
+	}
+	
+	my $already = $self->get_statements(
+		$st->subject,
+		$st->predicate,
+		$st->object,
+	);
+	return unless $already->next;
+
+	my ($s_prefix, $s_table, $s_divider, $s_bit) = $self->split_uri($st->subject);
+	my ($p_prefix, $p_table, $p_divider, $p_bit) = $self->split_uri($st->predicate);
+
+	return $self->_croak(
+		remove => $st,
+		"subject and predicate not from matching tables",
+		)
+		unless defined $s_table
+		&&     defined $p_table
+		&&     $s_table eq $p_table;
+		
+	return $self->_croak(
+		remove => $st,
+		"table $s_table is ignored by mapping",
+		)
+		if $s_table ~~ $self->mapping->ignore_tables;
+	
+	if ($st->object->is_literal)
+	{
+		my $table  = $self->schema ? sprintf('%s.%s', $self->schema, $p_table) : $p_table ;
+		my $index  = $self->_handle_bit($s_table, $s_bit);
+		my $column = $p_bit;
+		my $value  = $st->object->literal_value;
+		my $layout = $self->mapping->layout($self->dbh, $self->schema);
+		
+		if (exists $index->{$column})
+		{
+			return $self->_croak(
+				remove => $st,
+				"column $column is part of table primary key",
+				);
+		}
+		
+		my $sth = $self->dbh->prepare(sprintf(
+			'UPDATE %s SET %s=NULL WHERE %s=? AND %s',
+			$table,
+			$column,
+			$column,
+			join(q[ AND ] => map { "$_=?" } sort keys %$index)
+		));
+		$sth->execute($value, map { $index->{$_} } sort keys %$index)
+			or $self->_croak(remove => $st, "could not UPDATE database");
+		return;
+	}
+	else
+	{
+		return $self->_croak(
+			remove => $st,
+			"non-literal objects not implemented yet",
+			);
+	}	
 }
 
 sub remove_statements
 {
-	croak "remove_statements not implemented yet.";
+	my $self = shift;
+	my ($s, $p, $o) = @_;
+	
+	# catch the special case of 
+	# $store->remove_statements($s, undef, undef)
+	# and use it to delete an entire row from the table
+	if ($s and !$p and !$o and $s->is_resource)
+	{
+		my ($s_prefix, $s_table, $s_divider, $s_bit) = $self->split_uri($s);
+		
+		# for error messages
+		my $st = sub {
+			RDF::Trine::Statement->new(
+				$s,
+				RDF::Trine::Node::Variable->new('any_predicate'),
+				RDF::Trine::Node::Variable->new('any_object'),
+			)
+		};
+		
+		return $self->_croak(
+			remove => $st,
+			"subject not contained within this database according to mapping",
+			)
+			unless defined $s_prefix;
+		
+		return $self->_croak(
+			remove => $st->(),
+			"table $s_table is ignored by mapping",
+			)
+			if $s_table ~~ $self->mapping->ignore_tables;
+		
+		my $table  = $self->schema ? sprintf('%s.%s', $self->schema, $s_table) : $s_table ;
+		my $index  = $self->_handle_bit($s_table, $s_bit);
+		my $layout = $self->mapping->layout($self->dbh, $self->schema);
+		
+		my $sth = $self->dbh->prepare(sprintf(
+			'DELETE FROM %s WHERE %s',
+			$table,
+			join(q[ AND ] => map { "$_=?" } sort keys %$index)
+		));
+		$sth->execute(map { $index->{$_} } sort keys %$index)
+			or $self->_croak(remove => $st->(), "could not DELETE FROM database");
+		return;
+	}
+	
+	my $iter = $self->get_statements(@_);
+	while (my $st = $iter->next)
+	{
+		$self->remove_statement($st);
+	}
+}
+
+sub _carp
+{
+	my ($self, $method, $st, $message) = @_;
+	
+	if (exists $self->options->{on_carp})
+	{
+		$self->options->{on_carp}->(@_)
+			if ref $self->options->{on_carp} eq 'CODE';
+	}
+	else
+	{
+		Carp::carp(sprintf("Warning for %s %s: %s", $method, $st->sse, $message));
+	}
+}
+
+sub _croak
+{
+	my ($self, $method, $st, $message) = @_;
+	
+	if (exists $self->options->{on_croak})
+	{
+		$self->options->{on_croak}->(@_)
+			if ref $self->options->{on_croak} eq 'CODE';
+	}
+	else
+	{
+		Carp::croak(sprintf("Cannot %s %s: %s", $method, $st->sse, $message));
+	}
 }
 
 1;
+
+__END__
+
+=encoding utf8
 
 =head1 NAME
 
@@ -377,23 +728,88 @@ RDF::RDB2RDF::DirectMapping::Store - mapping-fu
 
  my $mapper = RDF::RDB2RDF->new('DirectMapping',
    prefix => 'http://example.net/data/');
- my $store  = RDF::RDB2RDF::DirectMapping::Store->new($dbh, $mapper);
+ my $store  = RDF::RDB2RDF::DirectMapping::Store->new($dbh, $mapper, %options);
 
 =head1 DESCRIPTION
 
-This is pretty experimental. It provides a (for now) read-only
-L<RDF::Trine::Store> based on a database handle and a 
-L<RDF::RDB2RDF::DirectMapping> map.
+This is pretty experimental. It provides a L<RDF::Trine::Store>
+based on a database handle and a  L<RDF::RDB2RDF::DirectMapping>
+map.
 
 Some queries are super-optimised; others are somewhat slower.
 
+=head2 A Read-Write Adventure!
+
+As of 0.006, there is very experimental support for C<add_statement>,
+C<remove_statement> and C<remove_statements>.
+
+Because data is stored in the database in a relational manner
+rather than as triples, some statements cannot be added to the
+database because they don't fit within the database's existing
+set of relations (i.e. tables). These will croak, but you can
+customise the failure (e.g. ignore it) using a callback:
+
+ my %opts = (
+   on_croak => sub {
+     my ($store, $action, $st, $reason) = @_;
+     my $dbh     = $store->dbh;
+     my $mapping = $store->mapping;
+     # do stuff here
+   },
+ );
+ $store->add_statement($st, $ctxt, \%opts);
+
+The on_croak option can alternatively be passed to the constructor.
+
+Generally speaking, if the C<add_statement> or C<remove_statement>
+methods fail, the database has probably been left unchanged. (But
+there are no guarantees - the database may have, say, a trigger
+set up which fires on SELECT.)
+
+Certain statements will also generate a warning. These warnings
+can be silenced by setting an C<on_carp> callback similarly.
+
+Again because of the relational nature of the storage, many
+statements will be mutually exclusive. That is, adding one
+statement may automatically negate an existing statement (i.e.
+cause it to be removed). You may set the C<overwrite> option
+to a false-but-defined value to prevent this happening.
+
+ $store->add_statement($st, $ctxt, { overwrite => 0 });
+
+Literal datatypes are essentially ignored when adding a
+statement because the mapping uses SQL datatypes to decide on
+RDF datatypes. Languages tags for plain literals will
+give a warning (which can be handled with C<on_carp>) but
+will otherwise be ignored. When removing a statement, the
+datatype will not be ignored, because before the statement
+is removed, the store checks that the exact statement exists
+in the store.
+
+C<remove_statement> fails if it would alter part of the primary
+key for a table, but C<add_statement> can alter part of the
+primary key.
+
+In many RDF stores, the C<remove_statements> method is a logical
+shortcut for calling C<get_statement> and then looping through
+the results, removing each one from the store. (Though probably
+optimized.)
+
+In this store though, C<remove_statements> may succeed when
+individual calls to C<remove_statement> would have succeeded.
+
+=head1 BUGS
+
+Please report any bugs to
+L<http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>.
+
 =head1 SEE ALSO
 
-L<RDF::Trine>, L<RDF::RDB2RDF>, L<RDF::RDB2RDF::DirectMapping>.
+L<RDF::Trine>, L<RDF::RDB2RDF>, L<RDF::RDB2RDF::DirectMapping>, L<RDF::Trine::Store>.
 
 L<http://perlrdf.org/>.
 
-L<http://www.w3.org/TR/2011/WD-rdb-direct-mapping-20110920/>.
+L<http://www.w3.org/TR/2012/WD-rdb-direct-mapping-20120529/>.
 
 =head1 AUTHOR
 
@@ -401,7 +817,14 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011 Toby Inkster
+Copyright 2011-2012 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
+
+=head1 DISCLAIMER OF WARRANTIES
+
+THIS PACKAGE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS OR IMPLIED
+WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED WARRANTIES OF
+MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+

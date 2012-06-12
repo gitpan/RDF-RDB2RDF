@@ -10,18 +10,12 @@
 		"DBD::SQLite" ,
 		"Test::More 0.61" ;
 	:requires 
-		"parent" ,
-		"Carp" ,
-		"common::sense" ,
 		"Data::UUID" ,
 		"DBI" ,
-		"DBIx::Admin::TableInfo" ,
-		"JSON" ,
+		"JSON 2.00" ,
 		"MIME::Base64" ,
-		"namespace::clean" ,
-		"RDF::Trine 0.133" ,
-		"Scalar::Util" ,
-		"Storable" ,
+		"namespace::clean 0.19" ,
+		"RDF::Trine 0.135" ,
 		"URI::Escape" .
 
 _:main <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#fileName> "lib/RDF/RDB2RDF.pm" .
