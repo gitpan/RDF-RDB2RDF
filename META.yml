@@ -49,4 +49,4 @@ resources:
   homepage: https://metacpan.org/release/RDF-RDB2RDF
   license: http://dev.perl.org/licenses/
   repository: https://bitbucket.org/tobyink/p5-rdf-rdb2rdf
-version: 0.006
+version: 0.007

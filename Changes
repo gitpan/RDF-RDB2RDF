@@ -6,6 +6,10 @@ Home page:    <https://metacpan.org/release/RDF-RDB2RDF>
 Bug tracker:  <http://rt.cpan.org/Dist/Display.html?Queue=RDF-RDB2RDF>
 Maintainer:   Toby Inkster <mailto:tobyink@cpan.org>
 
+0.007  2012-06-15  # The name's Bond... James Bond
+
+ - (Bugfix) Properly dereference hashref for Perl < 5.14.
+
 0.006  2012-06-12
 
  - (Addition) RDF::RDB2RDF::DirectMapping::Store supports new_with_config.
