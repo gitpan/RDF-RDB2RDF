@@ -8,7 +8,7 @@ use base qw(Exporter);
 our @EXPORT    = qw(uri_escape uri_unescape uri_escape_utf8 uri_escape_optimistic);
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.007';
+our $VERSION   = '0.008';
 
 sub uri_escape_optimistic
 {
@@ -43,7 +43,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2012 Toby Inkster.
+Copyright 2012-2013 Toby Inkster.
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

@@ -5,10 +5,10 @@ SYNOPSIS
      print RDF::RDB2RDF->new(R2RML => $r2rml)->process_turtle($dbh);
 
 DESCRIPTION
-    It's quite common to want to map legacy relational (SQL) data to RDF.
-    This is usually quite simple to do by looping through database tables
-    and spitting out triples. Nothing wrong with that; I've done that in the
-    past, and that's what RDF::RDB2RDF does under the hood.
+    It's quite common to want to map legacy relational (SQL) data to RDF. This
+    is usually quite simple to do by looping through database tables and
+    spitting out triples. Nothing wrong with that; I've done that in the past,
+    and that's what RDF::RDB2RDF does under the hood.
 
     But it's nice to be able to write your mapping declaratively. This
     distribution provides three modules to enable that:
@@ -17,11 +17,10 @@ DESCRIPTION
 
     *   RDF::RDB2RDF::R2RML - map relational database to RDF using R2RML
 
-    *   RDF::RDB2RDF::DirectMapping - map relational database to RDF
-        directly
+    *   RDF::RDB2RDF::DirectMapping - map relational database to RDF directly
 
-    "RDF::RDB2RDF" itself provides a wrapper for constructing mapper
-    objects, and acts as a base class for the three implementations.
+    `RDF::RDB2RDF` itself provides a wrapper for constructing mapper objects,
+    and acts as a base class for the three implementations.
 
     There is also a module RDF::RDB2RDF::DirectMapping::Store which uses the
     same mapping as RDF::RDB2RDF::DirectMapping but provides the same
@@ -44,7 +43,7 @@ AUTHOR
     Toby Inkster <tobyink@cpan.org>.
 
 COPYRIGHT
-    Copyright 2011-2012 Toby Inkster
+    Copyright 2011-2013 Toby Inkster
 
     This library is free software; you can redistribute it and/or modify it
     under the same terms as Perl itself.

@@ -10,7 +10,8 @@ use RDF::Trine::Namespace qw[rdf rdfs owl xsd];
 use Scalar::Util qw[blessed];
 use Storable qw[dclone];
 
-our $rr = RDF::Trine::Namespace->new('http://www.w3.org/ns/r2rml#');
+our $rr  = RDF::Trine::Namespace->new('http://www.w3.org/ns/r2rml#');
+our $rrx = RDF::Trine::Namespace->new('http://purl.org/r2rml-ext/');
 
 use namespace::clean;
 use base qw[
@@ -18,7 +19,15 @@ use base qw[
 ];
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.007';
+our $VERSION   = '0.008';
+
+sub _COL_
+{
+	package
+	RDF::RDB2RDF::R2RML::_COL_;
+	use overload fallback => 1, q[""] => sub { ${+shift} };
+	bless \$_[0];
+}
 
 sub new
 {
@@ -67,13 +76,13 @@ sub _r2rml
 		
 	foreach my $tmc (@TMC)
 	{
-		$self->_r2rml_TriplesMapClass($r2rml, $tmc);
+		$self->_r2rml_TriplesMap($r2rml, $tmc);
 	}
 	
 	$self->{r2rml} = $r2rml;
 }
 
-sub _r2rml_TriplesMapClass
+sub _r2rml_TriplesMap
 {
 	my ($self, $r2rml, $tmc) = @_;
 	my $mapping = {};
@@ -159,7 +168,7 @@ sub _r2rml_TriplesMapClass
 	foreach ($r2rml->objects($tmc, $rr->subjectMap))
 	{
 		next if $_->is_literal;
-		$self->_r2rml_SubjectMapClass($r2rml, $_, $mapping);
+		$self->_r2rml_SubjectMap($r2rml, $_, $mapping);
 		last;
 	}
 	
@@ -171,7 +180,7 @@ sub _r2rml_TriplesMapClass
 	foreach ($r2rml->objects($tmc, $rr->predicateObjectMap))
 	{
 		next if $_->is_literal;
-		$self->_r2rml_PredicateObjectMapClass($r2rml, $_, $mapping);
+		$self->_r2rml_PredicateObjectMap($r2rml, $_, $mapping);
 	}	
 
 	my $key = $tablename;
@@ -207,7 +216,7 @@ sub _r2rml_graph
 			map { sprintf('{%s}', $_->literal_value) }
 			grep { $_->is_literal }
 			$r2rml->objects($thing, $rr->column);
-		return $graph if $graph;
+		return _COL_ $graph if $graph;
 
 		($graph) =
 			map { $_->literal_value }
@@ -219,7 +228,7 @@ sub _r2rml_graph
 	return;
 }
 
-sub _r2rml_SubjectMapClass
+sub _r2rml_SubjectMap
 {
 	my ($self, $r2rml, $smc, $mapping) = @_;
 	
@@ -237,7 +246,7 @@ sub _r2rml_SubjectMapClass
 	unless ($mapping->{about})
 	{
 		my ($col) = grep { $_->is_literal } $r2rml->objects($smc, $rr->column);
-		$mapping->{about} = sprintf('{%s}', $col->literal_value) if $col;
+		$mapping->{about} = _COL_ sprintf('{%s}', $col->literal_value) if $col;
 		$mapping->{_about_is_column} = 1 if $col;
 	}
 	unless ($mapping->{about})
@@ -265,7 +274,7 @@ sub _r2rml_SubjectMapClass
 	}
 }
 
-sub _r2rml_PredicateObjectMapClass
+sub _r2rml_PredicateObjectMap
 {
 	my ($self, $r2rml, $pomc, $mapping) = @_;
 	
@@ -277,7 +286,7 @@ sub _r2rml_PredicateObjectMapClass
 	foreach ($r2rml->objects($pomc, $rr->predicateMap))
 	{
 		next if $_->is_literal;
-		push @predicates, $self->_r2rml_PredicateMapClass($r2rml, $_);
+		push @predicates, $self->_r2rml_PredicateMap($r2rml, $_);
 	}
 
 	push @predicates,
@@ -290,7 +299,7 @@ sub _r2rml_PredicateObjectMapClass
 	foreach ($r2rml->objects($pomc, $rr->objectMap))
 	{
 		next if $_->is_literal;
-		my $obj = $self->_r2rml_ObjectMapClass($r2rml, $_);
+		my $obj = $self->_r2rml_ObjectMap($r2rml, $_);
 		push @objects, $obj if defined $obj;
 	}
 
@@ -321,7 +330,7 @@ sub _r2rml_PredicateObjectMapClass
 	foreach ($r2rml->objects($pomc, $rr->refObjectMap))
 	{
 		next if $_->is_literal;
-		my $obj = $self->_r2rml_RefObjectMapClass($r2rml, $_);
+		my $obj = $self->_r2rml_RefObjectMap($r2rml, $_);
 		push @objects, $obj if defined $obj;
 	}
 
@@ -339,7 +348,7 @@ sub _r2rml_PredicateObjectMapClass
 	}
 }
 
-sub _r2rml_PredicateMapClass
+sub _r2rml_PredicateMap
 {
 	my ($self, $r2rml, $pmc) = @_;
 	
@@ -347,7 +356,7 @@ sub _r2rml_PredicateMapClass
 	unless ($p)
 	{
 		my ($col) = grep { $_->is_literal } $r2rml->objects($pmc, $rr->column);
-		$p = sprintf('{%s}', $col->literal_value) if $col;
+		$p = _COL_ sprintf('{%s}', $col->literal_value) if $col;
 	}
 	unless ($p)
 	{
@@ -358,11 +367,11 @@ sub _r2rml_PredicateMapClass
 	return ($p);
 }
 
-sub _r2rml_ObjectMapClass
+sub _r2rml_ObjectMap
 {
 	my ($self, $r2rml, $omc) = @_;
 	
-	my ($datatype, $language, $termtype, $column);
+	my ($datatype, $lang_col, $language, $termtype, $column);
 	my ($o) = map {
 			if ($_->is_resource)   { $termtype = 'IRI'; $_->value; }
 			elsif ($_->is_blank)   { $termtype = 'BlankNode'; $_->as_ntriples; }
@@ -373,7 +382,7 @@ sub _r2rml_ObjectMapClass
 	unless (defined $o)
 	{
 		my ($col) = grep { $_->is_literal } $r2rml->objects($omc, $rr->column);
-		$o        = sprintf('{%s}', $col->literal_value) if $col;
+		$o        = _COL_ sprintf('{%s}', $col->literal_value) if $col;
 		$column   = $col->literal_value if $col;
 	}
 	unless (defined $o)
@@ -392,6 +401,10 @@ sub _r2rml_ObjectMapClass
 		grep {  $_->is_literal }
 		$r2rml->objects($omc, $rr->language)
 		unless $language;
+	($lang_col) =
+		map { $_->literal_value }
+		grep {  $_->is_literal }
+		$r2rml->objects($omc, $rrx->languageColumn);
 	($termtype) =
 		map {
 				if ($_->as_ntriples =~ /(uri|iri|blank|blanknode|literal).?$/i)
@@ -402,7 +415,7 @@ sub _r2rml_ObjectMapClass
 		$r2rml->objects_for_predicate_list($omc, $rr->termType, $rr->termtype)
 		unless $termtype;
 	
-	$termtype ||= 'Literal' if $datatype || $language || defined $column;
+	$termtype ||= 'Literal' if $datatype || $language || $lang_col || defined $column;
 	$termtype ||= 'IRI';
 	
 	$o = sprintf('_:%s', $o)
@@ -424,11 +437,12 @@ sub _r2rml_ObjectMapClass
 	$map->{datatype} = $datatype if $datatype;
 	$map->{lang}     = $language if $language;
 	$map->{kind}     = ($termtype =~ /literal/i) ? 'property' : 'rel';
+	$map->{lang_col} = $lang_col if $lang_col;
 
 	return $map;
 }
 
-sub _r2rml_RefObjectMapClass
+sub _r2rml_RefObjectMap
 {
 	my ($self, $r2rml, $romc) = @_;
 		
@@ -436,7 +450,7 @@ sub _r2rml_RefObjectMapClass
 	PARENT: foreach my $ptm ($r2rml->objects($romc, $rr->parentTriplesMap))
 	{
 		next PARENT if $ptm->is_literal;
-		$parent = $self->_r2rml_TriplesMapClass($r2rml, $ptm);
+		$parent = $self->_r2rml_TriplesMap($r2rml, $ptm);
 		last PARENT if $parent;
 	}
 	return unless $parent;
@@ -461,7 +475,7 @@ sub _r2rml_RefObjectMapClass
 		on       => $joins,
 		resource => $parent->{about},
 		method   => $parent->{sql} ? 'subquery' : 'table',
-		};
+	};
 }
 
 1;
@@ -548,6 +562,36 @@ problems. Patches welcome.
 
 =back
 
+=head2 Language Extension
+
+rr:language allows you to assign only a constant language tag. This module
+implements an extension in case you need to assign the language dynamically
+(from a table or view column). It's defined as a property rrx:languageColumn:
+
+   @prefix rr:   <http://www.w3.org/ns/r2rml#>.
+   @prefix rrx:  <http://purl.org/r2rml-ext/>.
+   @prefix bibo: <http://purl.org/ontology/bibo/>.
+   @prefix dc:   <http://purl.org/dc/elements/1.1/>.
+   
+   []
+      rr:logicalTable [
+         rr:tableName "books";
+      ];
+      rr:subjectMap [
+         rr:class bibo:Book;
+         rr:template "book/{book_id}";
+      ];
+      rr:predicateObjectMap [
+         rr:predicate dc:title;
+         rr:objectMap [
+            rr:column "title";
+            rrx:languageColumn "title_lang";
+            rr:language "en";   # fallback for nulls
+         ];
+      ].
+
+Please note this must be a valid IANA language tag.
+
 =head1 BUGS
 
 Please report any bugs to
@@ -567,7 +611,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011-2012 Toby Inkster
+Copyright 2011-2013 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

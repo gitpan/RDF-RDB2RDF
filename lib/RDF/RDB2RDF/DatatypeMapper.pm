@@ -13,25 +13,25 @@ use URI::Escape qw[uri_escape];
 use namespace::clean;
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.007';
+our $VERSION   = '0.008';
 
 sub datatyped_literal
 {
 	my ($self, $value, $sql_datatype) = @_;
 
-	given ($sql_datatype)
+	for ($sql_datatype)
 	{
-		when (undef)
+		if (!defined)
 			{ return literal("$value"); }
-		when (/^(?:bp)?char\(?(\d+)\)?/i) # fixed width char strings.
+		if (/^(?:bp)?char\(?(\d+)\)?/i) # fixed width char strings.
 			{ return literal(sprintf("%-$1s", "$value")); }
-		when (/^(?:char|bpchar|varchar|string|text|note|memo)/i)
+		if (/^(?:char|bpchar|varchar|string|text|note|memo)/i)
 			{ return literal("$value"); }
-		when (/^(?:int|smallint|bigint)/i)
+		if (/^(?:int|smallint|bigint)/i)
 			{ return literal("$value", undef, $XSD->integer->uri); }
-		when (/^(?:decimal|numeric)/i)
+		if (/^(?:decimal|numeric)/i)
 			{ return literal("$value", undef, $XSD->decimal->uri); }
-		when (/^(?:float|real|double)/i)
+		if (/^(?:float|real|double)/i)
 		{
 			my ($m, $e) = map { "$_" } Math::BigFloat->new($value)->parts;
 			while ($m >= 10.0) {
@@ -44,28 +44,28 @@ sub datatyped_literal
 			$m =~ s/^$/0.0/;
 			return literal(sprintf('%sE%d', $m, $e), undef, $XSD->double->uri);
 		}
-		when (/^(?:binary|varbinary|blob|bytea)/i)
+		if (/^(?:binary|varbinary|blob|bytea)/i)
 		{
 			$value = uc unpack('H*' => $value);
 			return literal($value, undef, $XSD->hexBinary->uri);
 		}
-		when (/^(?:bool)/i)
+		if (/^(?:bool)/i)
 		{
 			$value = ($value and $value !~ /^[nf0]/i) ? 'true' : 'false';
 			return literal("$value", undef, $XSD->boolean->uri);
 		}
-		when (/^(?:timestamp|datetime)/i)
+		if (/^(?:timestamp|datetime)/i)
 		{
 			$value =~ s/ /T/;
 			return literal("$value", undef, $XSD->dateTime->uri);
 		}
-		when (/^(?:date)/i)
+		if (/^(?:date)/i)
 			{ return literal("$value", undef, $XSD->date->uri); }
-		when (/^(?:time)/i)
+		if (/^(?:time)/i)
 			{ return literal("$value", undef, $XSD->time->uri); }
-		default
-			{ return literal("$value", undef, $self->_dt_uri($sql_datatype)); }
-	}		
+			
+		return literal("$value", undef, $self->_dt_uri($sql_datatype));
+	}
 
 	literal("$value");
 }
@@ -103,7 +103,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011-2012 Toby Inkster.
+Copyright 2011-2013 Toby Inkster.
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

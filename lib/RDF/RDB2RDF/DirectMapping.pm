@@ -12,6 +12,7 @@ use RDF::Trine qw[iri blank literal statement];
 use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
 use Scalar::Util qw[refaddr blessed];
 use URI::Escape::Optimistic qw[uri_escape_optimistic];
+use match::simple qw[match];
 
 use namespace::clean;
 use base qw[
@@ -20,7 +21,7 @@ use base qw[
 ];
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.007';
+our $VERSION   = '0.008';
 
 sub new
 {
@@ -190,7 +191,7 @@ sub process
 sub handle_table
 {
 	my ($self, $dbh, $model, $table, $where, $cols) = @_;
-	return if $table ~~ $self->ignore_tables;
+	return if match $table, $self->ignore_tables;
 	
 	$model = RDF::Trine::Model->temporary_model unless defined $model;
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};		
@@ -287,7 +288,7 @@ sub handle_table
 sub handle_table_rdfs
 {
 	my ($self, $dbh, $model, $table) = @_;
-	return if $table ~~ $self->ignore_tables;
+	return if match $table, $self->ignore_tables;
 	
 	$model = RDF::Trine::Model->temporary_model unless defined $model;
 	my $callback = (ref $model eq 'CODE')?$model:sub{$model->add_statement(@_)};		
@@ -336,7 +337,7 @@ sub make_key_uri
 	return if grep { !defined $data->{$_} } @$columns;
 	
 	return $self->prefix .
-		$table . "/" .
+		uri_escape_optimistic($table) . "/" .
 		(join ';', map
 			{ sprintf('%s=%s', uri_escape_optimistic($_), uri_escape_optimistic($data->{$_})); }
 			@$columns);
@@ -347,7 +348,7 @@ sub make_ref_uri
 	my ($self, $table, $ref) = @_;
 	
 	return $self->prefix .
-		$table . "#ref-" .
+		uri_escape_optimistic($table) . "#ref-" .
 		(join ';', map
 			{ uri_escape_optimistic($_); }
 			@{$ref->{columns}});
@@ -364,7 +365,7 @@ sub make_ref_dest_uri_OLD
 	}
 	
 	return $self->prefix .
-		$ref->{target_table} . "/" .
+		uri_escape_optimistic($ref->{target_table}) . "/" .
 		(join ';', map
 			{ sprintf('%s=%s', uri_escape_optimistic($_), uri_escape_optimistic($data->{$map->{$_}})); }
 			@{$ref->{target_columns}});
@@ -467,7 +468,7 @@ The prefix defaults to the empty string - i.e. relative URIs.
 Three extra options are supported: C<rdfs> which controls whether extra Tbox
 statements are included in the mapping; C<warn_sql> carps statements to
 STDERR whenever the database is queried (useful for debugging);
-C<ignore_tables> specifies tables to ignore (smart match is used, so the
+C<ignore_tables> specifies tables to ignore (L<match::simple> is used, so the
 value of ignore_tables can be a string, regexp, coderef, or an arrayref
 of all of the above).
 
@@ -590,7 +591,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011-2012 Toby Inkster.
+Copyright 2011-2013 Toby Inkster.
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

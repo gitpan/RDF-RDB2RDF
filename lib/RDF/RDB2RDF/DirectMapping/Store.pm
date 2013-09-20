@@ -10,6 +10,7 @@ use RDF::Trine;
 use RDF::Trine::Namespace qw[RDF RDFS OWL XSD];
 use Scalar::Util qw[blessed];
 use URI::Escape qw[uri_escape uri_unescape];
+use match::simple qw[match];
 
 use namespace::clean;
 use base qw[
@@ -18,7 +19,7 @@ use base qw[
 ];
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.007';
+our $VERSION   = '0.008';
 
 sub new
 {
@@ -448,7 +449,7 @@ sub add_statement
 		add => $st,
 		"table $s_table is ignored by mapping",
 		)
-		if $s_table ~~ $self->mapping->ignore_tables;
+		if match $s_table, $self->mapping->ignore_tables;
 	
 	return $self->_croak(
 		add => $st,
@@ -592,7 +593,7 @@ sub remove_statement
 		remove => $st,
 		"table $s_table is ignored by mapping",
 		)
-		if $s_table ~~ $self->mapping->ignore_tables;
+		if match $s_table, $self->mapping->ignore_tables;
 	
 	if ($st->object->is_literal)
 	{
@@ -661,7 +662,7 @@ sub remove_statements
 			remove => $st->(),
 			"table $s_table is ignored by mapping",
 			)
-			if $s_table ~~ $self->mapping->ignore_tables;
+			if match $s_table, $self->mapping->ignore_tables;
 		
 		my $table  = $self->schema ? sprintf('%s.%s', $self->schema, $s_table) : $s_table ;
 		my $index  = $self->_handle_bit($s_table, $s_bit);
@@ -817,7 +818,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011-2012 Toby Inkster
+Copyright 2011-2013 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

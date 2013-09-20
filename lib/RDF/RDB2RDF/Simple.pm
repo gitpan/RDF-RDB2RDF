@@ -22,7 +22,7 @@ use base qw[
 ];
 
 our $AUTHORITY = 'cpan:TOBYINK';
-our $VERSION   = '0.007';
+our $VERSION   = '0.008';
 
 sub new
 {
@@ -74,7 +74,13 @@ sub template
 	{
 		return $template;
 	}
-	
+
+	if (blessed($template) and $template->isa('RDF::RDB2RDF::R2RML::_COL_'))
+	{
+		my $col = substr($template, 1, -1);
+		return $data->{$col};
+	}
+
 	$self->{uuid} = Data::UUID->new unless $self->{uuid};
 	$data->{'+uuid'} = $self->{uuid}->create_str;
 	
@@ -89,17 +95,19 @@ sub template
 		(my $key = $1)
 			=~ s/\\\}/\}/g;
 		my ($value, $type);
+				
 		if ($key =~ /^"(.+)"$/)
 		{
-			$value = ($data->{$1}  // '');
+			$value = ($data->{$1});
 			$type  = ($types->{$1} // 'varchar');
 		}
 		else
 		{
-			$value = ($data->{$key}  // $data->{lc $key}  // '');
+			$value = ($data->{$key}  // $data->{lc $key});
 			$type  = ($types->{$key} // $types->{lc $key} // '');
 		}
 		
+		return unless defined $value;  # Argh! return in a regexp!
 		$process->( $self->datatyped_literal($value, $type)->literal_value );
 	}gex;
 	
@@ -117,6 +125,8 @@ sub iri
 {
 	my ($self, $iri, $graph) = @_;
 	
+	return
+		unless defined $iri;
 	return $iri
 		if blessed($iri) && $iri->isa('RDF::Trine::Node');
 	return blank()
@@ -290,6 +300,7 @@ sub handle_row
 	
 	# ->{about}
 	my $subject = $self->_extract_subject_from_row($tmap, $row, $types);
+	return unless defined $subject;
 	
 	# ->{typeof}
 	foreach (@{ $tmap->{typeof} })
@@ -356,13 +367,22 @@ sub handle_map
 	my %row      = %$row;
 	my $column   = $map->{column};
 	
-	my ($predicate, $value, $loose);
+	my ($predicate, $value, $lang, $loose);
 	if ($column =~ /^"(.+)"$/)
 		{ $column = $1; $value = $row{$column} }
 	elsif (exists $row{$column})
 		{ $loose = 1; $value = $row{$column} }
 	elsif (exists $row{lc $column})
 		{ $loose = 1; $value = $row{lc $column} }
+	
+	if (my $lang_col = $map->{lang_col})
+	{
+		if ($lang_col =~ /^"(.+)"$/)
+			{ $lang = $row{$1} }
+		elsif (defined $lang_col)
+			{ $lang = $row{$lang_col} // $row{lc $lang_col} }
+	}
+	$lang //= $map->{lang};
 	
 	my $lgraph = defined $map->{graph}
 		? $self->iri($self->template_irisafe($map->{graph}, $row, $types))
@@ -409,9 +429,9 @@ sub handle_map
 			$value = $self->template($map->{content}, +{ %row, '_' => $value }, $types);
 		}
 		
-		if ($map->{lang})
+		if ($lang)
 		{
-			$value = literal($value, $map->{lang});
+			$value = literal($value, $lang);
 		}
 		else
 		{
@@ -434,7 +454,8 @@ sub handle_map
 	
 	if (defined $predicate and defined $value)
 	{
-		unless (ref $predicate)
+		if (blessed($predicate) && $predicate->isa('RDF::RDB2RDF::R2RML::_COL_')
+		or not ref $predicate)
 		{
 			$predicate = $self->template_irisafe($predicate, +{ %row, '_' => $value }, $types);
 			$predicate = $self->iri($predicate, $lgraph) ;
@@ -445,6 +466,7 @@ sub handle_map
 		{
 			$lsubject = $self->iri($self->template_irisafe($map->{about}, $row, $types), $lgraph);
 		}
+		return unless defined $lsubject;
 
 		my $st = $map->{rev}
 			? statement($value, $predicate, $lsubject) 
@@ -518,6 +540,11 @@ sub _export
 		return [ map { ref $_ ? $self->_export($_) : $_ } @$thingy ];
 	}
 	
+	if (blessed($thingy) and $thingy->isa('RDF::RDB2RDF::R2RML::_COL_'))
+	{
+		return "$thingy";
+	}
+
 	if (blessed($thingy) and $thingy->isa('RDF::Trine::Node::Resource'))
 	{
 		return $self->_mktemplate($thingy->uri);
@@ -800,7 +827,7 @@ Toby Inkster E<lt>tobyink@cpan.orgE<gt>.
 
 =head1 COPYRIGHT
 
-Copyright 2011-2012 Toby Inkster
+Copyright 2011-2013 Toby Inkster
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
